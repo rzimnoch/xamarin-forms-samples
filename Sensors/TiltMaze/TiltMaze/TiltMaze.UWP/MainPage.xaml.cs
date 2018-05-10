@@ -22,7 +22,7 @@ namespace TiltMaze.UWP
         {
             this.InitializeComponent();
 
-            DisplayInformation.AutoRotationPreferences = DisplayOrientations.Portrait;
+            DisplayInformation.AutoRotationPreferences = DisplayOrientations.Landscape;
 
             LoadApplication(new TiltMaze.App());
         }

@@ -276,7 +276,7 @@ namespace TiltMaze
             float len = ballVelocity.Length();
 
             // Watch out! If the velocity is too low, this loop can result in NaN ball coordinates
-            if (ballVelocity.Length() > 0.001)
+    //        if (ballVelocity.Length() > 0.001)
             {
                 bool needAnotherLoop = false;
 
@@ -305,14 +305,41 @@ namespace TiltMaze
 
                             Vector2 prevBallPosition = ballPosition;
 
+                            var len2 = ballVelocity.Length();
+
                             var norm = Vector2.Normalize(ballVelocity);
+                            /*
+                                                        // This check avoids division by zero in the normalization of ballVelocity
+                                                        if (ballVelocity.LengthSquared() > 0)
+                                                        {
+                                                            ballPosition = intersection + beyond * Vector2.Normalize(ballVelocity);
+                                                        }
+                                                        else
+                                                        {
+                                                 //           ballPosition = intersection;
+                                                        }
+                            */
+
+                            ballPosition = intersection + beyond * SafeNormalize(ballVelocity);
 
 
-                            ballPosition = intersection + beyond * Vector2.Normalize(ballVelocity);
+                            // The velocity might be so small that this creates division by zero.
+                    //        Vector2 ballVelocityNormalized = Vector2.Normalize(ballVelocity);
+
+                      //      if (float.IsInfinity(ballVelocityNormalized.X))
+
+
+                            
 
 
 
                             if (float.IsNaN(ballPosition.X) || float.IsNaN(ballPosition.Y) || float.IsInfinity(ballPosition.X) || float.IsInfinity(ballPosition.Y))
+                            {
+                                ;
+                            }
+
+                            if (ballPosition.X < 0 || ballPosition.X > absoluteLayout.Width ||
+                                ballPosition.Y < 0 || ballPosition.Y > absoluteLayout.Height)
                             {
                                 ;
                             }
@@ -333,6 +360,28 @@ namespace TiltMaze
             AbsoluteLayout.SetLayoutBounds(ball, new Rectangle(x, y, AbsoluteLayout.AutoSize, AbsoluteLayout.AutoSize));
 
             return (ballPosition - holePosition).Length() < HOLE_RADIUS - BALL_RADIUS;
+        }
+
+        Vector2 SafeNormalize(Vector2 vector)
+        {
+            var orig = vector;
+            var norm = Vector2.Normalize(vector);
+
+            if (Math.Abs(vector.X) < 0.001 && Math.Abs(vector.Y) < 0.001)
+            {
+                int expX = (int)Math.Log10(Math.Abs(vector.X));
+                int expY = (int)Math.Log10(Math.Abs(vector.Y));
+                int avg = (expX + expY) / 2;
+                float mult = (float)Math.Pow(10, -avg);
+                vector.X *= mult;
+                vector.Y *= mult;
+
+                var what = Vector2.Normalize(vector);
+
+                Console.WriteLine("{0} {1}", norm, what);
+            }
+
+            return Vector2.Normalize(vector);
         }
 
         float WrapAngle(float angle)
