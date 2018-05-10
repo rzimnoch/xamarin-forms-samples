@@ -222,7 +222,7 @@ namespace TiltMaze
             bool isBallLeftCorner = random.Next(2) == 0;
             bool isBallTopCorner = random.Next(2) == 0;
 
-            // Create a hole and position it at the opposite corner
+            // Create a hole and position it 
             hole = new EllipseView
             {
                 Color = Color.Black,
@@ -247,7 +247,7 @@ namespace TiltMaze
             ballPosition = new Vector2((isBallLeftCorner ? 1 : 2 * mazeGrid.Width - 1) * (width / mazeGrid.Width / 2),
                                        (isBallTopCorner ? 1 : 2 * mazeGrid.Height - 1) * (height / mazeGrid.Height / 2));
 
-            // But the actual position of ball is set during timer callback
+            // The actual position of ball is set during timer callback
             absoluteLayout.Children.Add(ball); 
         }
 
