@@ -45,7 +45,7 @@ namespace TiltMaze
             Accelerometer.ReadingChanged += (args) =>
             {
                 // Smooth the reading by averaging with prior values
-                acceleration = 0.5f * acceleration + 0.5f * args.Reading.Acceleration;
+                acceleration = 0.5f * args.Reading.Acceleration + 0.5f * acceleration;
             };
 
             Device.StartTimer(TimeSpan.FromMilliseconds(33), () =>
@@ -76,17 +76,19 @@ namespace TiltMaze
             }
             catch
             {
-                absoluteLayout.Children.Add(new Label
+                Label label = new Label
                 {
-                    Text = "Sorry, accelerometer not supported",
+                    Text = "Sorry, an accelerometer is not available on this device",
                     FontSize = 24,
                     TextColor = Color.White,
                     BackgroundColor = Color.DarkGray,
                     HorizontalTextAlignment = TextAlignment.Center,
                     Margin = new Thickness(48, 0)
-                }, 
-                new Rectangle(0.5, 0.5, AbsoluteLayout.AutoSize, AbsoluteLayout.AutoSize), 
-                AbsoluteLayoutFlags.PositionProportional);
+                };
+
+                absoluteLayout.Children.Add(label,
+                      new Rectangle(0.5, 0.5, AbsoluteLayout.AutoSize, AbsoluteLayout.AutoSize), 
+                      AbsoluteLayoutFlags.PositionProportional);
             }
             stopwatch.Start();
         }
@@ -116,13 +118,13 @@ namespace TiltMaze
             absoluteLayout.Children.Remove(ball);
             await absoluteLayout.FadeTo(0, 1000);
             NewGame((float)absoluteLayout.Width, (float)absoluteLayout.Height);
-            await absoluteLayout.FadeTo(1, 100);
+            await absoluteLayout.FadeTo(1, 500);
             isBallInPlay = true;
         }
 
         void NewGame(float width, float height)
         {
-            // This constructor creates the random maze layout
+            // The constructor creates the random maze layout
             mazeGrid = new MazeGrid(MAZE_HORZ_CHAMBERS, MAZE_VERT_CHAMBERS);
 
             // Initialize borders collection
@@ -176,6 +178,8 @@ namespace TiltMaze
             absoluteLayout.Children.Clear();
 
             // "Draw" the walls of the maze using BoxView
+            BoxView createBoxView() => new BoxView { Color = Color.Green };
+
             for (int x = 0; x < mazeGrid.Width; x++)
                 for (int y = 0; y < mazeGrid.Height; y++)
                 {
@@ -187,7 +191,7 @@ namespace TiltMaze
                                                        y * cellHeight - halfWallWidth,
                                                        halfWallWidth, cellHeight + WALL_WIDTH);
 
-                        absoluteLayout.Children.Add(CreateBoxView(), rect);
+                        absoluteLayout.Children.Add(createBoxView(), rect);
                     }
 
                     if (mazeCell.HasRight)
@@ -196,7 +200,7 @@ namespace TiltMaze
                                                        y * cellHeight - halfWallWidth,
                                                        halfWallWidth, cellHeight + WALL_WIDTH);
 
-                        absoluteLayout.Children.Add(CreateBoxView(), rect);
+                        absoluteLayout.Children.Add(createBoxView(), rect);
                     }
 
                     if (mazeCell.HasTop)
@@ -205,7 +209,7 @@ namespace TiltMaze
                                                        y * cellHeight,
                                                        cellWidth + WALL_WIDTH, halfWallWidth);
 
-                        absoluteLayout.Children.Add(CreateBoxView(), rect);
+                        absoluteLayout.Children.Add(createBoxView(), rect);
                     }
 
                     if (mazeCell.HasBottom)
@@ -214,15 +218,16 @@ namespace TiltMaze
                                                        (y + 1) * cellHeight - halfWallWidth,
                                                        cellWidth + WALL_WIDTH, halfWallWidth);
 
-                        absoluteLayout.Children.Add(CreateBoxView(), rect);
+                        absoluteLayout.Children.Add(createBoxView(), rect);
                     }
                 }
 
-            // Randomly position ball and hole in opposite corners
+            // Randomly position ball in one of the corners
             bool isBallLeftCorner = random.Next(2) == 0;
             bool isBallTopCorner = random.Next(2) == 0;
 
-            // Create a hole and position it 
+            // Create the hole first (so Z order is under the ball) 
+            //      and position it in the opposite corner from the ball
             hole = new EllipseView
             {
                 Color = Color.Black,
@@ -236,7 +241,7 @@ namespace TiltMaze
             absoluteLayout.Children.Add(hole, new Point(holePosition.X - HOLE_RADIUS, 
                                                         holePosition.Y - HOLE_RADIUS));
 
-            // Create a ball and initial position
+            // Create the ball and set initial position 
             ball = new EllipseView
             {
                 Color = Color.Red,
@@ -247,143 +252,74 @@ namespace TiltMaze
             ballPosition = new Vector2((isBallLeftCorner ? 1 : 2 * mazeGrid.Width - 1) * (width / mazeGrid.Width / 2),
                                        (isBallTopCorner ? 1 : 2 * mazeGrid.Height - 1) * (height / mazeGrid.Height / 2));
 
-            // The actual position of ball is set during timer callback
-            absoluteLayout.Children.Add(ball); 
-        }
-
-        BoxView CreateBoxView()
-        {
-            return new BoxView
-            {
-                Color = Color.Green
-            };
+            absoluteLayout.Children.Add(ball, new Point(ballPosition.X - BALL_RADIUS,
+                                                        ballPosition.Y - BALL_RADIUS));
         }
 
         bool MoveBall(float deltaSeconds)
         {
+            // Save the position just in case the velocity drops to zero
+            Vector2 savedBallPosition = ballPosition;
+
+            // Get acceleration, do the physics
             Vector2 acceleration2D = new Vector2(-acceleration.X, acceleration.Y);
             ballVelocity += GRAVITY * acceleration2D * deltaSeconds;
             Vector2 oldPosition = ballPosition;
             ballPosition += ballVelocity * deltaSeconds;
 
-            if (float.IsNaN(ballPosition.X) || float.IsNaN(ballPosition.Y))
+            // Loop through possible bounces
+            bool needAnotherLoop = false;
+
+            do
             {
-                ;
-            }
+                needAnotherLoop = false;
 
-            Vector2 saveBallPosition = ballPosition;
-            Vector2 saveBallVelocity = ballVelocity;
-            float len = ballVelocity.Length();
-
-            // Watch out! If the velocity is too low, this loop can result in NaN ball coordinates
-    //        if (ballVelocity.Length() > 0.001)
-            {
-                bool needAnotherLoop = false;
-
-                do
+                foreach (Line2D line in borders)
                 {
-                    needAnotherLoop = false;
+                    // Check if ball has crossed a line of the wall
+                    Line2D shiftedLine = line.ShiftOut(BALL_RADIUS * line.Normal);
+                    Line2D ballTrajectory = new Line2D(oldPosition, ballPosition);
+                    Vector2 intersection = shiftedLine.SegmentIntersection(ballTrajectory);
+                    float angleDiff = WrapAngle(line.Angle - ballTrajectory.Angle);
 
-                    foreach (Line2D line in borders)
+                    if (Line2D.IsValid(intersection) &&
+                        angleDiff > 0 &&
+                        Line2D.IsValid(Vector2.Normalize(ballVelocity)))
                     {
-                        Line2D shiftedLine = line.ShiftOut(BALL_RADIUS * line.Normal);
-                        Line2D ballTrajectory = new Line2D(oldPosition, ballPosition);
-                        Vector2 intersection = shiftedLine.SegmentIntersection(ballTrajectory);
-                        //             float angleDiff = (line.Angle - ballTrajectory.Angle) % (2 * (float)Math.PI);
+                        float beyond = (ballPosition - intersection).Length();
+                        ballVelocity = BOUNCE * Vector2.Reflect(ballVelocity, line.Normal);
 
-                        float angleDiff = WrapAngle(line.Angle - ballTrajectory.Angle);
-
-                        if (Line2D.IsValid(intersection) &&
-                            angleDiff > 0 &&
-                            Line2D.IsValid(Vector2.Normalize(ballVelocity)))
+                        // Check if the magnitude of the ball velocity is zero
+                        if (ballVelocity.Length() == 0)
                         {
-                            float beyond = (ballPosition - intersection).Length();
-
-                            Vector2 prevBallVelocity = ballVelocity;
-
-                            ballVelocity = BOUNCE * Vector2.Reflect(ballVelocity, line.Normal);
-
-                            Vector2 prevBallPosition = ballPosition;
-
-                            var len2 = ballVelocity.Length();
-
-                            var norm = Vector2.Normalize(ballVelocity);
-                            /*
-                                                        // This check avoids division by zero in the normalization of ballVelocity
-                                                        if (ballVelocity.LengthSquared() > 0)
-                                                        {
-                                                            ballPosition = intersection + beyond * Vector2.Normalize(ballVelocity);
-                                                        }
-                                                        else
-                                                        {
-                                                 //           ballPosition = intersection;
-                                                        }
-                            */
-
-                            ballPosition = intersection + beyond * SafeNormalize(ballVelocity);
-
-
-                            // The velocity might be so small that this creates division by zero.
-                    //        Vector2 ballVelocityNormalized = Vector2.Normalize(ballVelocity);
-
-                      //      if (float.IsInfinity(ballVelocityNormalized.X))
-
-
-                            
-
-
-
-                            if (float.IsNaN(ballPosition.X) || float.IsNaN(ballPosition.Y) || float.IsInfinity(ballPosition.X) || float.IsInfinity(ballPosition.Y))
-                            {
-                                ;
-                            }
-
-                            if (ballPosition.X < 0 || ballPosition.X > absoluteLayout.Width ||
-                                ballPosition.Y < 0 || ballPosition.Y > absoluteLayout.Height)
-                            {
-                                ;
-                            }
-
-                            needAnotherLoop = true;
+                            // Just get out of here; danger lurks otherwise
+                            ballPosition = savedBallPosition;
                             break;
                         }
+
+                        // Set new ball position ofter bounce
+                        ballPosition = intersection + beyond * Vector2.Normalize(ballVelocity);
+
+                        // But the bounce might put it beyond another border line
+                        needAnotherLoop = true;
+                        break;
                     }
                 }
-                while (needAnotherLoop);
             }
+            while (needAnotherLoop);
 
-            double x = ballPosition.X - BALL_RADIUS;
-            double y = ballPosition.Y - BALL_RADIUS;
+            // Position the ball at ballPosition
+            Rectangle ballRect = new Rectangle(ballPosition.X - BALL_RADIUS, 
+                                               ballPosition.Y - BALL_RADIUS, 
+                                               AbsoluteLayout.AutoSize, AbsoluteLayout.AutoSize);
 
-            // How can x and y be NaN?
+            AbsoluteLayout.SetLayoutBounds(ball, ballRect);
 
-            AbsoluteLayout.SetLayoutBounds(ball, new Rectangle(x, y, AbsoluteLayout.AutoSize, AbsoluteLayout.AutoSize));
-
+            // Return true for GAME OVER if the ball is within the hole 
             return (ballPosition - holePosition).Length() < HOLE_RADIUS - BALL_RADIUS;
         }
 
-        Vector2 SafeNormalize(Vector2 vector)
-        {
-            var orig = vector;
-            var norm = Vector2.Normalize(vector);
-
-            if (Math.Abs(vector.X) < 0.001 && Math.Abs(vector.Y) < 0.001)
-            {
-                int expX = (int)Math.Log10(Math.Abs(vector.X));
-                int expY = (int)Math.Log10(Math.Abs(vector.Y));
-                int avg = (expX + expY) / 2;
-                float mult = (float)Math.Pow(10, -avg);
-                vector.X *= mult;
-                vector.Y *= mult;
-
-                var what = Vector2.Normalize(vector);
-
-                Console.WriteLine("{0} {1}", norm, what);
-            }
-
-            return Vector2.Normalize(vector);
-        }
-
+        // Forces angle between -PI and PI
         float WrapAngle(float angle)
         {
             const float pi = (float)Math.PI;
